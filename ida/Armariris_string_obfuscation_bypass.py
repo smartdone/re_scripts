@@ -139,7 +139,7 @@ class Emu(object):
     def unmap_mem(self, mu):
         for item in self.mapped_mem:
             mu.mem_unmap(item['base'], item['size'])
-            print("unmap memory: base = 0x%08x, size = 0x%x" %(item['base'], item['size']))
+            print("unmap memory: base = 0x%08x, size = 0x%x" % (item['base'], item['size']))
 
     def execute_function(self, function_data):
         print("execute `%s` on 0x%x" % (function_data['name'], function_data['start']))
@@ -151,16 +151,38 @@ class Emu(object):
         sp = 0
 
         if abs(self.data_base - self.text_base) < (1024 * 1024 * 2):
+            __base = 0
             # 分配到同一块内存
-            pass
+            if self.data_base < self.text_base:
+                __base = self.data_base
+            else:
+                __base = self.text_base
+            __len = self.data_len + self.text_len + 1024 * 1024 * 2
+            alloc_base, alloc_len = Emu.get_base_and_len(__base, __len)
+            mu.mem_map(alloc_base, alloc_len)
+            self.mapped_mem.append({"base": alloc_base, "size": alloc_len})
+
+            # 写text段
+            mu.mem_write(self.text_base, bytes(self.text))
+
+            # 写data段
+            mu.mem_write(self.data_base, bytes(self.data))
+
+            stack_base = alloc_base + alloc_len
+            sp = stack_base + 1024 * 1024
+            mu.mem_map(stack_base, stack_size)
+            mu.reg_write(function_data['arch']['sp'], sp)
+            self.mapped_mem.append({"base": stack_base, "size": stack_size})
         else:
             # 分配多块内存
+            # 将data段映射到内存中
             __data_base, _data_len = Emu.get_base_and_len(self.data_base, self.data_len)
             # print hex(__data_base), hex(_data_len)
             mu.mem_map(__data_base, _data_len)
             self.mapped_mem.append({"base": __data_base, "size": _data_len})
             mu.mem_write(self.data_base, bytes(self.data))
 
+            # 将text段映射到内存中
             __text_base, _text_len = Emu.get_base_and_len(self.text_base, self.text_len)
             # print hex(__text_base), hex(_text_len)
             mu.mem_map(__text_base, _text_len)
