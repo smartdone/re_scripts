@@ -26,18 +26,9 @@ INPUT_FILE = str(get_input_file_path())
 # 获取image base
 IMAGE_BASE = get_imagebase()
 
-BINARY_DATA = None
-
 INPUT_PATH = os.path.dirname(INPUT_FILE)
 
-with open(INPUT_FILE, "rb") as f:
-    BINARY_DATA = f.read()
-
-BINARY_LENGTH = len(BINARY_DATA)
-
 DEBUG = True
-
-print("binary len %d" % BINARY_LENGTH)
 
 # # 将program rebase到0
 # if IMAGE_BASE != 0:
@@ -119,7 +110,7 @@ def hook_code(uc, address, size, user_data):
     if instruction == b'\xc3':
         uc.emu_stop()
 
-    if address == 0 or address == IMAGE_BASE:
+    if address == 0:
         uc.emu_stop()
 
     if DEBUG:
@@ -129,24 +120,72 @@ def hook_code(uc, address, size, user_data):
 
 
 class Emu(object):
-    def __init__(self, data):
-        self.data = data
+    def __init__(self, _data, _data_base, _text, _text_base):
+        self.data = bytearray(_data)
+        self.data_base = _data_base
+        self.data_len = len(_data)
+        self.text = bytearray(_text)
+        self.text_base = _text_base
+        self.text_len = len(_text)
+
+        self.mapped_mem = []
+
+    @staticmethod
+    def get_base_and_len(base, length):
+        _base = base - (base % (1024 * 1024))
+        _length = (length / (1024 * 1024) + 1) * 1024 * 1024
+        return _base, _length
+
+    def unmap_mem(self, mu):
+        for item in self.mapped_mem:
+            mu.mem_unmap(item['base'], item['size'])
+            print("unmap memory: base = 0x%08x, size = 0x%x" %(item['base'], item['size']))
 
     def execute_function(self, function_data):
         print("execute `%s` on 0x%x" % (function_data['name'], function_data['start']))
         print(function_data)
         mu = Uc(function_data['arch']['arch'], function_data['arch']['mode'])
-        mu.mem_map(IMAGE_BASE, 1024 * 1024 * 4)
-        mu.mem_write(IMAGE_BASE, self.data)
 
-        STACK = IMAGE_BASE + 1024 * 1024 * 3
-        mu.reg_write(function_data['arch']['sp'], STACK)
+        stack_base = 0
+        stack_size = 1024 * 1204 * 2
+        sp = 0
+
+        if abs(self.data_base - self.text_base) < (1024 * 1024 * 2):
+            # 分配到同一块内存
+            pass
+        else:
+            # 分配多块内存
+            __data_base, _data_len = Emu.get_base_and_len(self.data_base, self.data_len)
+            # print hex(__data_base), hex(_data_len)
+            mu.mem_map(__data_base, _data_len)
+            self.mapped_mem.append({"base": __data_base, "size": _data_len})
+            mu.mem_write(self.data_base, bytes(self.data))
+
+            __text_base, _text_len = Emu.get_base_and_len(self.text_base, self.text_len)
+            # print hex(__text_base), hex(_text_len)
+            mu.mem_map(__text_base, _text_len)
+            self.mapped_mem.append({"base": __text_base, "size": _text_len})
+            mu.mem_write(self.text_base, bytes(self.text))
+
+            if __text_base > __data_base:
+                stack_base = __text_base + _text_len
+            else:
+                stack_base = __data_base + _data_len
+
+            mu.mem_map(stack_base, stack_size)
+            self.mapped_mem.append({"base": stack_base, "size": stack_size})
+            sp = stack_base + 1024 * 1024
+
+            mu.reg_write(function_data['arch']['sp'], sp)
 
         mu.hook_add(UC_HOOK_CODE, hook_code)
 
         mu.emu_start(function_data['start'], function_data['end'])
 
-        self.data = mu.mem_read(IMAGE_BASE, BINARY_LENGTH)
+        self.data = mu.mem_read(self.data_base, self.data_len)
+        self.text = mu.mem_read(self.text_base, self.text_len)
+
+        self.unmap_mem(mu)
 
         print("Simulation execution function %s ends" % function_data['name'])
 
@@ -154,30 +193,38 @@ class Emu(object):
         return self.data
 
 
-emu = Emu(BINARY_DATA)
+_data = None
+_data_base = 0
+
+_text = None
+_text_base = 0
+for seg in idautils.Segments():
+    if idc.SegName(seg) == "__data" or idc.SegName(seg) == ".data":
+        start = idc.SegStart(seg)
+        end = idc.SegEnd(seg)
+        length = end - start
+        d = idc.GetManyBytes(start, length)
+        d = [ord(item) for item in list(d)]
+        _data = d
+        _data_base = start
+    if idc.SegName(seg) == "__text" or idc.SegName(seg) == ".text":
+        start = idc.SegStart(seg)
+        end = idc.SegEnd(seg)
+        length = end - start
+        d = idc.GetManyBytes(start, length)
+        d = [ord(item) for item in list(d)]
+        _text = d
+        _text_base = start
+
+print("data: 0x%08x, len: %d" % (_data_base, len(_data)))
+print("text: 0x%08x, len: %d" % (_text_base, len(_text)))
+emu = Emu(_data, _data_base, _text, _text_base)
 
 for func in data_div_decodes:
     try:
         emu.execute_function(func)
-        # 将模拟执行成功的代码改为ret或者bx lr
-        if func['arch']['arch'] == UC_ARCH_X86:
-            ks = Ks(func['arch']['karch'], func['arch']['kmode'])
-            encoding, _ = ks.asm('ret')
-            for i in range(0, len(encoding), 1):
-                emu.data[func['start'] + i] = encoding[i]
-        elif func['arch']['arch'] == UC_ARCH_ARM:
-            ks = Ks(func['arch']['karch'], func['arch']['kmode'])
-            encoding, _ = ks.asm('bx lr')
-            for i in range(0, len(encoding), 1):
-                emu.data[func['start'] + i] = encoding[i]
     except Exception as e:
+        print(e)
         print("Execution function `%s` failed.(The function address is 0x%x)" % (func['name'], func['start']))
 
-data = emu.get_data()
-print "after", data[0x1030:0x1030 + 10]
-
-# FIXED_FILE = os.path.join(INPUT_PATH, "%s.dec" % os.path.basename(INPUT_FILE))
-# with open(FIXED_FILE, "wb+") as f:
-#     f.write(BINARY_DATA[:0x34])
-#     f.write(data[0x34:])
-#     f.flush()
+# idc.patch_byte()
