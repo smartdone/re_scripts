@@ -115,8 +115,7 @@ def hook_code(uc, address, size, user_data):
 
     if DEBUG:
         _code = idc.GetDisasm(address)
-        print("0x%08x 0x%x %s" % (address, uc.reg_read(UC_X86_REG_RSP), _code))
-        print("dl = 0x%x" % uc.reg_read(UC_X86_REG_DL))
+        print("0x%08x %s" % (address, _code))
 
 
 class Emu(object):
@@ -249,4 +248,7 @@ for func in data_div_decodes:
         print(e)
         print("Execution function `%s` failed.(The function address is 0x%x)" % (func['name'], func['start']))
 
-# idc.patch_byte()
+# path data
+decode_data = emu.get_data()
+for i in range(len(decode_data)):
+    idc.patch_byte(_data_base + i, decode_data[i])
