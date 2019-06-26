@@ -68,7 +68,7 @@ archs = [
 data_div_decodes = []
 
 
-# 获取指令集
+# 获取指令集，不知道ida有什么api可以获取指令集。这里就用了keystone来判定了一下
 def get_arch(_code, ea):
     bin_code = idc.GetManyBytes(ea, 16)
     bin_code = [ord(item) for item in list(bin_code)]
