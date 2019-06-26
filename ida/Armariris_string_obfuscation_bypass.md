@@ -111,5 +111,113 @@ __int64 datadiv_decode14953400483976599729()
 
 对于的ascii字符串就是`test 1111`
 
+他这里做字符串混淆用的是一个很简单的原理，一个数字两次异或同一个值，得到的结果是本事的值。也就是
+第一次异或就给字符串混淆了，再异或一次就把数据还原了。
 
+## 源码分析
+
+字符串混淆的源文件在`lib/Transforms/Obfuscation/StringObfuscation.cpp`这个位置，
+实现字符串混淆的是一个`ModulePass`,关于`ModulePass`可以参考[http://llvm.org/doxygen/classllvm_1_1ModulePass.html#details](http://llvm.org/doxygen/classllvm_1_1ModulePass.html#details)
+。在这个pass里面会遍历字符串，然后把字符串和生成的key异或，并替换原始的值，关键代码如下:
+
+```cpp
+
+// Duplicate global variable
+GlobalVariable *dynGV = new GlobalVariable(M,
+                                          gv->getType()->getElementType(),
+                                          !(gv->isConstant()), gv->getLinkage(),
+                                          (Constant*) 0, gv->getName(),
+                                          (GlobalVariable*) 0,
+                                          gv->getThreadLocalMode(),
+                                          gv->getType()->getAddressSpace());
+// dynGV->copyAttributesFrom(gv);
+dynGV->setInitializer(gv->getInitializer());
+
+std::string tmp=gv->getName().str();
+//  errs()<<"GV: "<<*gv<<"\n";
+
+Constant *initializer = gv->getInitializer();
+ConstantDataSequential *cdata = dyn_cast<ConstantDataSequential>(initializer);
+if (cdata) {
+        const char *orig = cdata->getRawDataValues().data();
+        unsigned len = cdata->getNumElements()*cdata->getElementByteSize();
+
+        encVar *cur = new encVar();
+        cur->var = dynGV;
+        cur->key = llvm::cryptoutils->get_uint8_t();
+        // casting away const is undef. behavior in C++
+        // TODO a clean implementation would retrieve the data, generate a new constant
+        // set the correct type, and copy the data over.
+        //char *encr = new char[len];
+        //Constant *initnew = ConstantDataArray::getString(M.getContext(), encr, true);
+        char *encr = const_cast<char *>(orig);
+        // Simple xor encoding
+        for (unsigned i = 0; i != len; ++i) {
+                encr[i] = orig[i]^cur->key;
+        }
+
+        // FIXME Second part of the unclean hack.
+        dynGV->setInitializer(initializer);
+
+        // Prepare to add decode function for this variable
+        encGlob.push_back(cur);
+} else {
+        // just copying default initializer for now
+        dynGV->setInitializer(initializer);
+}
+
+// redirect references to new GV and remove old one
+gv->replaceAllUsesWith(dynGV);
+toDelConstGlob.push_back(gv);
+
+```
+
+在替换了之后为了保证程序可以正常运行，还得加一个函数输还原字符串，还原字符串的
+函数生成代码在`addDecodeFunction`中。在这里添加了`.datadiv_decode`开始的函数
+加上一串随机字符串，里面进行了异或操作，将数据还原。然后将这个函数加入到了`entry`，这个在
+elf文件的话，就会被加入到`.init_array`，在mach-o文件中就会被加入到`__mod_init_func`。
+代码也比较简单，可以参照源码看一下。
+
+
+## 还原字符串
+
+前面讲了原理其实很简单，那么怎么还原字符串呢，其实也有很多方式，第一种是内存dump，因为他会在
+初始化程序的时候就把原始字符串还原回去。但是有时候我就行静态分析，不想执行之后去dump。如果只
+静态分析，也可以去人工还原字符串。但是如果字符串很多，人工还原工作量很大。其实我们还可以使用
+unicorn之类的工具，模拟去执行他的指令，把字符串进行还原。
+
+### 还原混淆字符串的思路
+
+1. 找到所有`.datadiv_decode`开始的函数
+2. unicorn分配内存，将程序的.text段和.data段映射到unicorn分配的内存中
+3. 模拟执行所有`.datadiv_decode`开始的函数
+4. 最后将unicorn中分配的data读出来，patch到程序中
+
+### 使用的工具
+
+因为不同操作系统可执行文件格式不一样。为了简单点，我们直接写一个ida插件。所以需要以下工具：
+
+1. ida
+2. python2 (因为ida里面内置的python是python2)
+3. python2安装unicorn和keystone库
+
+### 找到所有的`.datadiv_decode`开始的函数
+
+`idautils.Functions()`可以遍历函数，遍历匹配含有`datadiv_decode`的函数，保存他们
+的起始地址，代码很简单，如下:
+
+```python
+import idaapi
+import idc
+import idautils
+
+for func in idautils.Functions():
+    func_name = idc.GetFunctionName(func)
+    if "datadiv_decode" in func_name:
+        func_data = idaapi.get_func(func)
+        start = func_data.start_ea
+        end = func_data.end_ea
+```
+
+### unicorn分配内存
 
