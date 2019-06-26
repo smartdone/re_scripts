@@ -266,7 +266,7 @@ def get_base_and_len(base, length):
 
 ### 完整代码以及示例二进制文件
 
-代码已经二进制文件存放在[https://github.com/smartdone/re_scripts/tree/master/ida](https://github.com/smartdone/re_scripts/tree/master/ida)
+代码以及二进制文件存放在[https://github.com/smartdone/re_scripts/tree/master/ida](https://github.com/smartdone/re_scripts/tree/master/ida)
 其中Armariris_string_obfuscation_bypass.py是ida用来还原Armariris混淆过的字符串的插件。sample里面的test_linux_x86_64和test_macos_x86_64是示例二进制文件。
 
 > 如果本文说的有错误的地方，请及时指正，谢谢。
