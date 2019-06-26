@@ -10,7 +10,8 @@ git clone git@github.com:gossip-sjtu/Armariris.git
 cd Armariris
 mkdir build
 cd build
-cmake ../
+cmake ../ -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="ARM;X86;AArch64"
+make -j8
 ```
 
 测试文件内容如下:
