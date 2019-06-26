@@ -221,3 +221,52 @@ for func in idautils.Functions():
 
 ### unicorn分配内存
 
+我这里分配内存的想法是直接用ida的api获取data段和text段的内容，以及起始地址，然后在
+unicorn里面对于起始分配内存，将data段和text段写进去。
+
+unicorn分配内存还是有些坑，不能直接在任意地址分配，必须得整除1024的才可以，所以需
+要稍微计算一下分配的地址。这里对基地址减去对(1024 * 1024)求余的结果作为新的基地址，
+然后分配内存的长度增加(1024 * 1024)，实现的代码如下
+
+```python
+
+def get_base_and_len(base, length):
+    _base = base - (base % (1024 * 1024))
+    _length = (length / (1024 * 1024) + 1) * 1024 * 1024
+    return _base, _length
+
+```
+
+算出起始地址之后使用unicorn的`mem_map`方法分配内存即可
+
+### 模拟执行，patch程序
+
+模拟执行这里也比较简单，直接调用unicorn的`emu_start`方法，然后传入函数的起始地址即可开始
+模拟执行，模拟执行完成之后将data段读出来，模拟执行下一个函数的时候使用这个data加载到内存中。
+这样所有的`.datadiv_decode`函数执行之后data段就被还原了。将还原的data段用ida的patch去
+修改掉原始的data，这个时候你看到的字符串就是原始的字符串了。
+
+运行脚本前效果如下:
+
+![before](./img/before.png)
+
+运行脚本之后效果如下:
+
+![after](./img/after1.png)
+
+![after](./img/after2.png)
+
+这个时候可以选中字符串，然后按a就能得到下面的效果
+
+![after](./img/after3.png)
+
+![after](./img/after4.png)
+
+
+### 完整代码以及示例二进制文件
+
+代码已经二进制文件存放在[https://github.com/smartdone/re_scripts/tree/master/ida](https://github.com/smartdone/re_scripts/tree/master/ida)
+其中Armariris_string_obfuscation_bypass.py是ida用来还原Armariris混淆过的字符串的插件。sample里面的test_linux_x86_64和test_macos_x86_64是示例二进制文件。
+
+> 如果本文说的有错误的地方，请及时指正，谢谢。
+
