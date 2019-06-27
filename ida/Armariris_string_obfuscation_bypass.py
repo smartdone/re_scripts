@@ -9,7 +9,6 @@ import idaapi
 import idc
 import idautils
 import sys
-from ida_loader import reload_file
 import os
 
 # 把系统python的库加进来
@@ -113,6 +112,9 @@ def hook_code(uc, address, size, user_data):
     if address == 0:
         uc.emu_stop()
 
+    if address !=0 and address != IMAGE_BASE:
+        idc.set_color(address, idc.CIC_ITEM, 0xFFB6C1)
+
     if DEBUG:
         _code = idc.GetDisasm(address)
         print("0x%08x %s" % (address, _code))
@@ -201,7 +203,10 @@ class Emu(object):
 
         mu.hook_add(UC_HOOK_CODE, hook_code)
 
-        mu.emu_start(function_data['start'], function_data['end'])
+        if function_data['arch']['mode'] == UC_MODE_THUMB:
+            mu.emu_start(function_data['start'] + 1, function_data['end'])
+        else:
+            mu.emu_start(function_data['start'], function_data['end'])
 
         self.data = mu.mem_read(self.data_base, self.data_len)
         self.text = mu.mem_read(self.text_base, self.text_len)
