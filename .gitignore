@@ -284,5 +284,10 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
-/ida/sample/test_macos_x86_64.i64
-/ida/sample/test_linux_x86_64.i64
+*.i64
+*.idb
+*.id1
+*.id2
+*.id0
+*.nam
+*.til

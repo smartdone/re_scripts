@@ -257,3 +257,5 @@ for func in data_div_decodes:
 decode_data = emu.get_data()
 for i in range(len(decode_data)):
     idc.patch_byte(_data_base + i, decode_data[i])
+
+idc.auto_mark_range(_data_base, _data_base + len(_data), idc.AU_USED)
