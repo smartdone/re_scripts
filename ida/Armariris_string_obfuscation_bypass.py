@@ -28,3 +28,17 @@ for seg in sim.segments:
         idc.MakeUnknown(seg['start'], seg['end'] - seg['start'], idaapi.DELIT_DELNAMES)
         # 调用ida重新解析data段
         idaapi.analyze_area(seg['start'], seg['end'])
+        idaapi.build_strlist()
+
+# 查询string的交叉引用，在引用位置添加备注
+num = idaapi.get_strlist_qty()
+print num
+for idx in range(num):
+    str_info = idaapi.string_info_t()
+    idaapi.get_strlist_item(str_info, idx)
+    str_cont = idc.GetString(str_info.ea, str_info.length, str_info.type)
+    str_cont = str_cont.strip()
+    refs = idautils.DataRefsTo(str_info.ea)
+    for ref in refs:
+        idc.MakeComm(ref, str_cont)
+
