@@ -14,6 +14,32 @@ sys.path.append('/usr/local/lib/python2.7/site-packages/')
 from unicorn import *
 from unicorn.x86_const import *
 from unicorn.arm_const import *
+from unicorn.arm64_const import *
+from capstone import *
+
+IMAGE_BASE = idaapi.get_imagebase()
+DEBUG = True
+
+md = Cs(CS_ARCH_X86, CS_MODE_64)
+md.detail = True
+
+
+def hook_code(uc, address, size, user_data):
+    instruction = uc.mem_read(address, size)
+    if instruction == b'\xc3':
+        uc.emu_stop()
+
+    if address == 0:
+        uc.emu_stop()
+
+    if address != 0 and address != IMAGE_BASE:
+        idc.set_color(address, idc.CIC_ITEM, 0xFFB6C1)
+
+    if DEBUG:
+        # _code = idc.GetDisasm(address)
+        # print("0x%016x \t%s" % (address, _code))
+        for i in md.disasm(instruction, address):
+            print("0x%08x:\t%s\t\t%s" % (i.address, i.mnemonic, i.op_str))
 
 
 class Simulator(object):
@@ -56,15 +82,23 @@ class Simulator(object):
         if self.ph_id == idaapi.PLFM_386 and self.ph_flag & idaapi.PR_USE64:
             self.arch = UC_ARCH_X86
             self.mode = UC_MODE_64
+            self.sp = UC_X86_REG_RSP
+            self.bp = UC_X86_REG_RBP
         elif self.ph_id == idaapi.PLFM_386 and self.ph_flag & idaapi.PR_USE32:
             self.arch = UC_ARCH_X86
             self.mode = UC_MODE_32
+            self.sp = UC_X86_REG_RSP
+            self.bp = UC_X86_REG_RBP
         elif self.ph_id == idaapi.PLFM_ARM and self.ph_flag & idaapi.PR_USE32:
             self.arch = UC_ARCH_ARM
             self.mode = UC_MODE_ARM
+            self.sp = UC_ARM_REG_SP
+            self.bp = UC_ARM_REG_SP
         elif self.ph_id == idaapi.PLFM_ARM and self.ph_flag & idaapi.PR_USE64:
             self.arch = UC_ARCH_ARM64
             self.mode = UC_MODE_ARM
+            self.sp = UC_ARM64_REG_SP
+            self.bp = UC_ARM64_REG_SP
 
     def is_thumb_ea(self, ea):
         if self.ph_id == idaapi.PLFM_ARM and not self.ph_flag & idaapi.PR_USE64:
@@ -79,6 +113,7 @@ class Simulator(object):
     def emu_start(self, func_start, func_end):
         if self.arch == UC_ARCH_ARM:
             if self.is_thumb_ea(func_start):
+                print("thumb mode")
                 self.mode = UC_MODE_THUMB
         mu = Uc(self.arch, self.mode)
 
@@ -91,12 +126,24 @@ class Simulator(object):
         # 写入数据
         for item in self.segments:
             Simulator.write_memory(mu, item['start'], item['data'])
-            
-        # 开始执行
-        if self.mode == UC_MODE_THUMB:
-            mu.emu_start(func_start + 1, func_end)
-        else:
-            mu.emu_start(func_start, func_end)
+
+        # 配置寄存器
+        mu.reg_write(self.sp, self.stack_base + 1024 * 1024)
+        print hex(mu.reg_read(self.sp))
+        print hex(mu.reg_read(self.bp))
+
+        # mu.reg_write(self.bp, self.stack_base + 1024 * 1024)
+
+        mu.hook_add(UC_HOOK_CODE, hook_code)
+
+        try:
+            # 开始执行
+            if self.mode == UC_MODE_THUMB:
+                mu.emu_start(func_start + 1, func_end)
+            else:
+                mu.emu_start(func_start, func_end)
+        except Exception as e:
+            print("Err: %s. Execution function failed.(The function address is 0x%x)" % (e, func_start))
 
         # 读取数据
         for item in self.segments:
@@ -116,12 +163,15 @@ class Simulator(object):
 
     @staticmethod
     def write_memory(mu, start, data):
+        if isinstance(data, list):
+            data = bytearray(data)
         mu.mem_write(start, bytes(data))
 
     @staticmethod
     def read_memory(mu, start, end):
         _length = end - start
-        return mu.mem_read(start, _length)
+        _data = mu.mem_read(start, _length)
+        return _data
 
     @staticmethod
     def map_memory(mu, start, _length):
@@ -131,7 +181,7 @@ class Simulator(object):
     @staticmethod
     def unmap_memory(mu, start, _length):
         mu.mem_unmap(start, _length)
-        print("map memory: offset 0x%x, size: 0x%x" % (start, _length))
+        print("unmap memory: offset 0x%x, size: 0x%x" % (start, _length))
 
     @staticmethod
     def get_base_and_len(base, length):
@@ -140,7 +190,6 @@ class Simulator(object):
         return _base, _length
 
     def get_unicorn_mem_pages(self):
-        print type(self.segments)
         if len(self.segments) == 0:
             return None
 
@@ -169,8 +218,13 @@ class Simulator(object):
         return self.mem_map
 
 
+# # sim = Simulator()
+# for func in idautils.Functions():
+#     func_name = idc.GetFunctionName(func)
+#     func_data = idaapi.get_func(func)
+#     start = func_data.start_ea
+#     end = func_data.end_ea
+#     print(func_name, hex(start), hex(end))
+
 sim = Simulator()
-print sim.segments
-print sim.mem_map
-# print sim.get_unicorn_mem_pages()
-print hex(sim.stack_base)
+sim.emu_start(0x400530, 0x400726)
