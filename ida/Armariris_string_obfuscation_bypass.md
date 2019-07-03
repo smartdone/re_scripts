@@ -257,7 +257,7 @@ def get_base_and_len(base, length):
 
 ![after](./img/after2.png)
 
-这个时候可以选中字符串，然后按a就能得到下面的效果
+现在脚本已经可以自动重新解析data段，并且会给string的所有引用处加上注释，效果大概可以参考[http://iosre.com/t/armariris-ida/15071](http://iosre.com/t/armariris-ida/15071)
 
 ![after](./img/after3.png)
 
