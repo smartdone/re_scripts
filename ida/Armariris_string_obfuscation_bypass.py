@@ -18,32 +18,29 @@ for func in idautils.Functions():
     start = func_data.start_ea
     end = func_data.end_ea
     # print(func_name, hex(start), hex(end))
-    if "datadiv_decode" in func_name:
+    if "datadiv_decode" in func_name and not ("j_.datadiv_decode" in func_name):
         sim.emu_start(start, end)
 
-sim.patch_segment('.data')
-sim.patch_segment('__data')
+sim.patch_segment('data')
 
 for seg in sim.segments:
-    if ".data" == seg['name'] or "__data" == seg['name']:
+    if "data" in seg['name']:
         # 把data段全部undefined
+        print("MakeUnknown %s" % seg['name'])
         idc.MakeUnknown(seg['start'], seg['end'] - seg['start'], idaapi.DELIT_DELNAMES)
         # 调用ida重新解析data段
+        print("analyze area: 0x%x - 0x%x" % (seg['start'], seg['end']))
         idaapi.analyze_area(seg['start'], seg['end'])
-        time.sleep(2)
-        idaapi.clear_strlist()
-        time.sleep(2)
-        idaapi.build_strlist()
+        # idaapi.clear_strlist()
+        # idaapi.build_strlist()
 
 # 查询string的交叉引用，在引用位置添加备注
-num = idaapi.get_strlist_qty()
-print num
-for idx in range(num):
-    str_info = idaapi.string_info_t()
-    idaapi.get_strlist_item(str_info, idx)
-    str_cont = idc.GetString(str_info.ea, str_info.length, str_info.type)
-    str_cont = str_cont.strip()
-    refs = idautils.DataRefsTo(str_info.ea)
-    for ref in refs:
-        idc.MakeComm(ref, str_cont)
-
+s = idautils.Strings(False)
+s.setup()
+for i, str_info in enumerate(s):
+    if str_info:
+        # print("%x: len=%d  index=%d-> '%s'" % (str_info.ea, str_info.length, i, str(str_info)))
+        str_cont = str(str_info)
+        refs = idautils.DataRefsTo(str_info.ea)
+        for ref in refs:
+            idc.MakeComm(ref, str_cont)

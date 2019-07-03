@@ -17,7 +17,7 @@ from unicorn.arm_const import *
 from unicorn.arm64_const import *
 
 IMAGE_BASE = idaapi.get_imagebase()
-DEBUG = False
+DEBUG = True
 
 
 def hook_code(uc, address, size, user_data):
@@ -207,6 +207,7 @@ class Simulator(object):
 
     def patch_segment(self, seg_name):
         for seg in self.segments:
-            if seg_name == seg['name']:
+            if seg_name in seg['name']:
+                print("patch %s: 0x%x - 0x%x" %(seg['name'], seg['start'], seg['end']))
                 for i in range(len(seg['data'])):
                     idc.patch_byte(seg['start'] + i, seg['data'][i])
