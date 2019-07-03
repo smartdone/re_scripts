@@ -7,7 +7,6 @@
 import idaapi
 import idautils
 import idc
-import time
 
 from Simulator import Simulator
 
