@@ -17,7 +17,7 @@ from unicorn.arm_const import *
 from unicorn.arm64_const import *
 
 IMAGE_BASE = idaapi.get_imagebase()
-DEBUG = True
+DEBUG = False
 
 
 def hook_code(uc, address, size, user_data):
@@ -92,7 +92,10 @@ class Simulator(object):
     def is_thumb_ea(self, ea):
         if self.ph_id == idaapi.PLFM_ARM and not self.ph_flag & idaapi.PR_USE64:
             if idaapi.IDA_SDK_VERSION >= 700:
-                t = idaapi.get_sreg(ea, "T")
+                try:
+                    t = idaapi.get_sreg(ea, 20)
+                except:
+                    t = idaapi.get_sreg(ea, "T")
             else:
                 t = idaapi.get_segreg(ea, 20)
             return t is not idaapi.BADSEL and t is not 0
@@ -204,6 +207,6 @@ class Simulator(object):
 
     def patch_segment(self, seg_name):
         for seg in self.segments:
-            if seg_name in seg['name']:
+            if seg_name == seg['name']:
                 for i in range(len(seg['data'])):
                     idc.patch_byte(seg['start'] + i, seg['data'][i])

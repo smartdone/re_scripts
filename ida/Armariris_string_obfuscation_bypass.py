@@ -7,6 +7,7 @@
 import idaapi
 import idautils
 import idc
+import time
 
 from Simulator import Simulator
 
@@ -20,14 +21,18 @@ for func in idautils.Functions():
     if "datadiv_decode" in func_name:
         sim.emu_start(start, end)
 
-sim.patch_segment('data')
-# idaapi.analyze_area(sim.segments)
+sim.patch_segment('.data')
+sim.patch_segment('__data')
+
 for seg in sim.segments:
-    if "data" in seg['name']:
+    if ".data" == seg['name'] or "__data" == seg['name']:
         # 把data段全部undefined
         idc.MakeUnknown(seg['start'], seg['end'] - seg['start'], idaapi.DELIT_DELNAMES)
         # 调用ida重新解析data段
         idaapi.analyze_area(seg['start'], seg['end'])
+        time.sleep(2)
+        idaapi.clear_strlist()
+        time.sleep(2)
         idaapi.build_strlist()
 
 # 查询string的交叉引用，在引用位置添加备注
