@@ -3,55 +3,75 @@
 
 # @Author: smartdone
 # @Date:   2019-07-01 11:00
-import idaapi
-import idautils
-import idc
 
-# from Simulator import Simulator
-#
-# sim = Simulator()
-# for func in idautils.Functions():
-#     func_name = idc.GetFunctionName(func)
-#     func_data = idaapi.get_func(func)
-#     start = func_data.start_ea
-#     end = func_data.end_ea
-#     if "func2" in func_name:
-#         # chunks = idautils.Heads(start, end)
-#         # for item in chunks:
-#         #     print hex(item)
-#         #     idaapi.isFlow()
-#         #     print idaapi.isCode(idc.GetFlags(item))
-#         for head in idautils.Heads(start, end):
-#             if idaapi.isCode(idc.GetFlags(head)):
-#                 refs = idautils.CodeRefsFrom(head, 0)
-#                 refs = set(filter(lambda x: x >= start and x <= end, refs))
-#                 if refs:
-#                     next_head = idc.NextHead(head, end)
-#                     if idaapi.isFlow(idc.GetFlags(next_head)):
-#                         print "next head 0x%x" % next_head
-#                 x = ["0x%x" % ref for ref in refs]
-#
-#     # print(func_name, hex(start), hex(end))
-#     # if "func2" in func_name:
-#     #     sim.emu_start(start, end)
+from Simulator import *
+from capstone import *
+from capstone.arm64_const import *
+
+
+def hook_code(uc, address, size, user_data):
+    pass
+
+
+class FLASimulator(Simulator):
+    def __init__(self):
+        super(FLASimulator, self).__init__()
+
+    def emu_start(self, func_start, func_end):
+        pass
+
+    def get_context(self, mu, context):
+        pass
+
+    def set_context(self, mu, context):
+        pass
+
 
 for func in idautils.Functions():
     func_name = idc.GetFunctionName(func)
     func_data = idaapi.get_func(func)
     start = func_data.start_ea
     end = func_data.end_ea
-    if "datadiv" in func_name:
-        # refs = idautils.DataRefsFrom(start)
-        # print ["0x%x" % ref for ref in refs]
-        for item in idautils.FuncItems(start):
+    # print func_name, hex(start), hex(end)
+    if func_name == "_ZN5crazy5Error6AppendEPKc":
+        print func_name, hex(start), hex(end)
+        func_bytes = idc.GetManyBytes(start, end - start)
+        func_bytes = [ord(item) for item in list(func_bytes)]
+        func_bytes = bytearray(func_bytes)
+        md = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+        md.detail = True  # enable detail analyise
 
-            refs = idautils.XrefsTo(start, 0)
-            for ref in refs:
-                print dir(ref)
-                print "0x%x" % ref.to
-                print "0x%x" % ref.frm
-                print ref.iscode
-            # refs = ["0x%x" % ref for ref in refs]
-            # if refs:
-            #     print "0x%x" % item
-            #     print refs
+        basic_block = []
+        bloc = {}
+        isNewBlock = True
+
+        for i in md.disasm(func_bytes, start):
+            # print("0x%x:\t%s\t%s" % (i.address, i.mnemonic, i.op_str))
+            if isNewBlock:
+                isNewBlock = False
+                bloc['start'] = i.address
+                bloc['ins'] = []
+            bloc['ins'].append(i)
+
+            if len(i.groups) > 0:
+                isNewBlock = True
+                bloc['end'] = i.address
+                bloc['dead'] = False
+                for op in i.operands:
+                    if op.type == ARM64_OP_IMM:
+                        # print("0x%x:\t%s\t%s" % (i.address, i.mnemonic, i.op_str))
+                        bloc['next'] = op.value.imm
+                        # print("next: 0x%x" % op.value.imm)
+                        if op.value.imm == i.address:
+                            bloc['dead'] = True
+                            idc.set_color(i.address, idc.CIC_ITEM, 0x0000ff)
+                            idc.MakeComm(i.address, "Infinite loop")
+                basic_block.append(bloc)
+                bloc = {}
+
+        print(len(basic_block))
+        for item in basic_block:
+            print("loc_%x" % item['start'])
+            for i in item['ins']:
+                print("0x%x:\t%s\t%s" % (i.address, i.mnemonic, i.op_str))
+            print("\n")
