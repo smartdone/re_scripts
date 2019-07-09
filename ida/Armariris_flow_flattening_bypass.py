@@ -7,16 +7,27 @@
 from Simulator import *
 from capstone import *
 from capstone.arm64_const import *
+from capstone.x86_const import *
+from capstone.arm_const import *
+
+retaddr = 0
 
 
 def hook_code(uc, address, size, user_data):
-    pass
+    global retaddr
+    block_starts = [item['start'] for item in user_data]
+
+    if address in block_starts:
+        uc.emu_stop()
+        retaddr = address
+        return
 
 
 class FLASimulator(Simulator):
-    def __init__(self):
+    def __init__(self, basic_blocks):
         super(FLASimulator, self).__init__()
         self.context = None
+        self.basic_blocks = basic_blocks
 
     def emu_start(self, func_start, func_end):
         if self.arch == UC_ARCH_ARM:
@@ -38,7 +49,7 @@ class FLASimulator(Simulator):
         # 配置寄存器
         mu.reg_write(self.sp, self.stack_base + 1024 * 1024)
 
-        mu.hook_add(UC_HOOK_CODE, hook_code)
+        mu.hook_add(htype=UC_HOOK_CODE, callback=hook_code, user_data=self.basic_blocks)
 
         self.set_context(mu, self.context)
 
@@ -68,11 +79,27 @@ class FLASimulator(Simulator):
         if not mu:
             return self.context
         else:
-            pass
+            regs = []
+            if self.arch == UC_ARCH_ARM:
+                pass
+            elif self.arch == UC_ARCH_ARM64:
+                for idx in range(UC_ARM64_REG_X0, UC_ARM64_REG_X28 + 1):
+                    regs.append((idx, mu.reg_read(idx)))
+            elif self.arch == UC_ARCH_X86:
+                pass
+
+            self.context = regs
+
+            return self.context
 
     def set_context(self, mu=None, _context=None):
         if not mu:
             self.context = _context
+        else:
+            if _context:
+                self.context = _context
+                for item in self.context:
+                    mu.reg_write(item[0], item[1])
 
 
 for func in idautils.Functions():
