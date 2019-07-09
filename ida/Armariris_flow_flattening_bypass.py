@@ -16,15 +16,63 @@ def hook_code(uc, address, size, user_data):
 class FLASimulator(Simulator):
     def __init__(self):
         super(FLASimulator, self).__init__()
+        self.context = None
 
     def emu_start(self, func_start, func_end):
-        pass
+        if self.arch == UC_ARCH_ARM:
+            if self.is_thumb_ea(func_start):
+                print("thumb mode")
+                self.mode = UC_MODE_THUMB
+        mu = Uc(self.arch, self.mode)
 
-    def get_context(self, mu, context):
-        pass
+        for item in self.mem_map:
+            Simulator.map_memory(mu, item['start'], item['length'])
 
-    def set_context(self, mu, context):
-        pass
+        # 给栈分配内存
+        Simulator.map_memory(mu, self.stack_base, self.stack_length)
+
+        # 写入数据
+        for item in self.segments:
+            Simulator.write_memory(mu, item['start'], item['data'])
+
+        # 配置寄存器
+        mu.reg_write(self.sp, self.stack_base + 1024 * 1024)
+
+        mu.hook_add(UC_HOOK_CODE, hook_code)
+
+        self.set_context(mu, self.context)
+
+        try:
+            # 开始执行
+            if self.mode == UC_MODE_THUMB:
+                mu.emu_start(func_start + 1, func_end)
+            else:
+                mu.emu_start(func_start, func_end)
+        except Exception as e:
+            print("Err: %s. Execution function failed.(The function address is 0x%x)" % (e, func_start))
+
+        self.get_context(mu)
+
+        # 读取数据
+        for item in self.segments:
+            _data = Simulator.read_memory(mu, item['start'], item['end'])
+            self.replace_data(item['start'], _data)
+
+        # unmap memory
+        for item in self.mem_map:
+            Simulator.unmap_memory(mu, item['start'], item['length'])
+
+        Simulator.unmap_memory(mu, self.stack_base, self.stack_length)
+
+    def get_context(self, mu=None):
+        if not mu:
+            return self.context
+        else:
+            pass
+
+    def set_context(self, mu=None, _context=None):
+        if not mu:
+            self.context = _context
 
 
 for func in idautils.Functions():
@@ -69,9 +117,17 @@ for func in idautils.Functions():
                 basic_block.append(bloc)
                 bloc = {}
 
-        print(len(basic_block))
-        for item in basic_block:
-            print("loc_%x" % item['start'])
-            for i in item['ins']:
-                print("0x%x:\t%s\t%s" % (i.address, i.mnemonic, i.op_str))
-            print("\n")
+        # print(len(basic_block))
+        # for item in basic_block:
+        #     print("loc_%x" % item['start'])
+        #     for i in item['ins']:
+        #         print("0x%x:\t%s\t%s" % (i.address, i.mnemonic, i.op_str))
+        #     print("\n")
+
+        queue = [(start, None)]
+        flow = {}
+
+        while len(queue) > 0:
+            env = queue.pop()
+            pc = env[0]
+            context = env[1]
