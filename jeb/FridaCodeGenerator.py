@@ -6,6 +6,11 @@
 
 # -*- coding: utf-8 -*-
 
+import sys
+
+reload(sys)
+sys.setdefaultencoding('utf8')
+
 from com.pnfsoftware.jeb.client.api import IScript, IGraphicalClientContext
 from com.pnfsoftware.jeb.core import RuntimeProjectUtil
 from com.pnfsoftware.jeb.core.units.code.android import IDexUnit
@@ -69,7 +74,7 @@ def generate_log_code(types, retval, method_name, class_name, args):
 
     if retval != "void":
         log_code += '            var retval = this.{method_name}({args})\n'.format(method_name=method_name,
-                                                                                       args=", ".join(args))
+                                                                                   args=", ".join(args))
         log_code += '            console.log("{class_name}->{method_name} (retType: {_type}): " + retval)\n'.format(
             class_name=class_name, method_name=method_name, _type=retval)
         log_code += '            return retval;\n'
@@ -77,6 +82,29 @@ def generate_log_code(types, retval, method_name, class_name, args):
         log_code += '            this.{method_name}({args});\n'.format(method_name=method_name, args=", ".join(args))
 
     return log_code
+
+
+class JavaMethod(object):
+    def __init__(self):
+        self.class_name = None
+        self.name = None
+        self.arg = []
+        self.retType = None
+
+    def get_parameters(self):
+        return self.arg
+
+    def get_return_type(self):
+        return self.retType
+
+    def get_name(self):
+        return self.name
+
+    def get_class_name(self):
+        return self.class_name
+
+    def __str__(self):
+        return "name: %s, args: %s, return type: %s" % (self.name, self.arg, self.retType)
 
 
 class FridaCodeGenerator(IScript):
@@ -121,33 +149,29 @@ class FridaCodeGenerator(IScript):
             0]  # Get dex context, needs >=V2.2.1
         try:
             self.current_unit = ctx.getFocusedView().getActiveFragment().getUnit()  # Get current Source Tab in Focus
-            java_class = self.current_unit.getClassElement()  # needs >V2.1.4
-            curent_addr = ctx.getFocusedView().getActiveFragment().getActiveAddress()  # needs 2.1.4
-            if "(" in curent_addr:
-                curent_addr = curent_addr.split("+")[0]
-                print("current function: " + curent_addr)
-                m = FridaCodeGenerator.get_decompiled_method(self.dexunit, curent_addr)
+            # java_class = self.current_unit.getClassElement()  # needs >V2.1.4
+            current_addr = ctx.getFocusedView().getActiveFragment().getActiveAddress()  # needs 2.1.4
+            if "(" in current_addr:
+                current_addr = current_addr.split("+")[0]
+                print("current function: " + current_addr)
+                m = FridaCodeGenerator.get_decompiled_method(self.dexunit, current_addr)
 
-                method_name = m.getName()
-                class_name = FridaCodeGenerator.to_canonical_name(java_class.getName())
+                method_name = m.get_name()
+                class_name = FridaCodeGenerator.to_canonical_name(m.get_class_name())
 
-                return_type = str(m.getReturnType())
+                return_type = FridaCodeGenerator.to_canonical_name(str(m.get_return_type()))
 
                 if method_name == "<clinit>":
                     return
 
                 args = []
-                for item in m.getParameters():
+                for item in range(len(m.get_parameters())):
                     # print(item.getIdentifier().getName())
-                    args.append(str(item.getIdentifier().getName()))
+                    args.append(str("arg_%d" % item))
 
-                types = [FridaCodeGenerator.to_canonical_name(param.getType().getSignature()) for param in
-                         m.getParameters()]
-                if len(args) > 0:
-                    if args[0] == "this":
-                        args = args[1:]
-                        types = types[1:]
-                simple_class_name = class_name.split('.')[-1]
+                types = [FridaCodeGenerator.to_canonical_name(param) for param in m.get_parameters()]
+
+                simple_class_name = class_name.split('.')[-1].replace("$", "_")
 
                 if method_name == "<init>": method_name = "$init"
 
@@ -195,25 +219,32 @@ class FridaCodeGenerator(IScript):
 
     @staticmethod
     def get_decompiled_method(dex, msig):
-        m = dex.getMethod(msig)
-        if not m:
-            return None
+        method_info = JavaMethod()
+        infos = str(msig).split("->")
+        if len(infos) == 2:
+            method_info.class_name = infos[0]
+            if len(infos[1].split("(")) == 2:
+                method_info.name = infos[1].split("(")[0]
+            if len(infos[1].split(")")) == 2:
+                method_info.retType = infos[1].split(")")[1]
+            if len(infos[1].split("(")) == 2 and len(infos[1].split(")")) == 2:
+                args = infos[1].split("(")[-1].split(")")[0]
+                while args:
+                    if args[0] in ['C', 'I', 'B', 'Z', 'F', 'D', 'S', 'J', 'V']:
+                        method_info.arg.append(str(args[0]))
+                        args = args[1:]
+                    elif args[0] == '[':
+                        if args[1] == 'L':
+                            offset = args.find(";")
+                            method_info.arg.append(str(args[0:offset + 1]))
+                            args = args[offset + 1:]
+                        else:
+                            method_info.arg.append(str(args[0:2]))
+                            args = args[2:]
+                    elif args[0] == 'L':
+                        offset = args.find(";")
+                        method_info.arg.append(str(args[0:offset + 1]))
+                        args = args[offset + 1:]
+                print(method_info)
 
-        c = m.getClassType()
-        if not c:
-            return None
-
-        decompiled = DecompilerHelper.getDecompiler(dex)
-        if not decompiled:
-            return None
-
-        class_sig = c.getSignature(False)
-        java_unit = decompiled.decompile(class_sig)
-        if not java_unit:
-            return None
-
-        method_sig_0 = m.getSignature(False)
-        for m in java_unit.getClassElement().getMethods():
-            if m.getSignature() == method_sig_0:
-                return m
-        return None
+        return method_info

@@ -1,5 +1,5 @@
 # re_scripts
-Some reverse-engineering scripts written by myself
+Some reverse-engineering scripts
 
 ## jeb
 
